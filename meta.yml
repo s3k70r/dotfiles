@@ -1,0 +1,268 @@
+#ANSIBLE_NOCOWS=1 ansible-playbook meta.yml --extra-vars "user=testuser passwd=123 desktop=false video=homeless" --tags "update,packages,configuration,newuser,yay"
+- name: awesome arch setup
+  hosts: localhost
+  become: yes
+  #TODO split files
+  #TODO autodetect desktop and video
+  tasks:
+    - name: Syu
+      pacman:
+        update_cache: yes
+        upgrade: yes
+      when: false
+      tags: update
+
+    - name: openssh docker
+      pacman:
+        name:
+          - openssh
+          - docker
+        state: present
+      tags: packages
+
+    - name: enable service docker and ensure it is not masked
+      systemd:
+        name: docker
+        enabled: yes
+        masked: no
+      tags: packages
+
+    - name: create user
+      user:
+        name: "{{ user }}"
+        password: "{{ passwd | password_hash('sha512')  }}"
+        groups:
+          - wheel
+          - docker
+        generate_ssh_key: yes
+        state: present
+      tags: newuser
+
+    - name: add user to sudoers
+      lineinfile:
+        path: /etc/sudoers.d/{{ user }}
+        line: '{{ user }} ALL=(ALL) ALL'
+        create: yes
+        validate: 'visudo -cf %s'
+      tags: newuser
+
+# synaptic
+    - name: synaptic
+      pacman:
+        name: xf86-input-synaptics
+        state: present
+      when: not desktop
+      tags: packages
+
+# video
+    - name: homeless graphics
+      pacman:
+        name: xf86-video-fbdev
+        state: present
+      when: video == "homeless"
+      tags: packages
+
+    - name: intel graphics
+      pacman:
+        name: xf86-video-intel
+        state: present
+      when: video == "intel"
+      tags: packages
+
+    - name: nvidia graphics
+      pacman:
+        name: xf86-video-nouveau
+        state: present
+      when: video == "nvidia"
+      tags: packages
+
+    - name: radeon graphics
+      pacman:
+        name: xf86-video-ati
+        state: present
+      #xf86-video-amdgpu
+      when: video == "radeon"
+      tags: packages
+
+# pacman packages
+    - name: pacman bigger
+      pacman:
+        name:
+          - xorg-server
+          - xorg-xinit
+          - xorg-xprop
+          - xorg-xrandr
+          - i3-wm
+          - i3blocks
+          - dmenu
+          - rofi
+          - lxappearance-gtk3
+          - arc-gtk-theme
+          - acpi
+          - rxvt-unicode
+          - compton
+          - arandr
+          - lxrandr-gtk3
+          - feh
+          - sysstat
+          - firefox
+          - networkmanager
+          - networkmanager-openvpn
+          - network-manager-applet
+          - terminator
+          - xorg-xbacklight
+          - xbindkeys
+          - i3lock
+          - pulseaudio
+          - pavucontrol
+          - ttf-dejavu
+          - ttf-hack
+          - adobe-source-sans-pro-fonts
+          - cowsay
+          - fortune-mod
+          - udisks2
+          - udevil
+          - telegram-desktop
+          - ranger
+      tags: packages
+
+# yaourt packages
+    - name: install yay
+      git:
+        repo: "https://aur.archlinux.org/yay.git"
+        dest: "/tmp/yay"
+      become: yes
+      become_user: "{{ user }}"
+      tags: yay
+
+    - name: install yay2
+      command: makepkg -si --noconfirm
+      args:
+        chdir: "/tmp/yay"
+      become: yes
+      become_user: "{{ user }}"
+      tags: yay
+
+    - name: yay packages
+      command: yay -S google-chrome gxkb xss-lock-git alsi --noconfirm
+      become: yes
+      become_user: "{{ user }}"
+      tags: yay
+
+# get configs from github
+    - name: prepare dotfiles dir
+      file:
+        state: absent
+        path: "/home/{{ user }}/.dotfiles"
+      tags: configuration
+
+    - name: clone dotfiles repo
+      become_user: "{{ user }}"
+      git:
+        repo: 'https://github.com/s3k70r/dotfiles'
+        dest: "/home/{{ user }}/.dotfiles"
+      tags: configuration
+
+# setup configs
+    - name: setup synaptic
+      copy:
+        src: /home/{{ user }}/.dotfiles/etc/X11/xorg.conf.d/70-synaptics.conf
+        dest: /etc/X11/xorg.conf.d/70-synaptics.conf
+      when: not desktop
+      tags: configuration
+
+    - name: prepare locales
+      copy:
+        src: /home/{{ user }}/.dotfiles/etc/locale.gen
+        dest: /etc/locale.gen
+      tags: configuration
+
+    - name: handle lid seitch
+      copy:
+        src: /home/{{ user }}/.dotfiles/etc/systemd/logind.conf
+        dest: /etc/systemd/logind.conf
+      tags: configuration
+
+    - name: gen locales
+      command: locale-gen
+#      locale_gen:
+#        name:
+#          - ru_RU.UTF-8
+#          - en_US.UTF-8
+#        state: present
+      tags: configuration
+ 
+    - name: setup locales
+      copy:
+        src: /home/{{ user }}/.dotfiles/etc/locale.conf
+        dest: /etc/locale.conf
+      tags: configuration
+
+    - name: vconsole
+      copy:
+        src: /home/{{ user }}/.dotfiles/etc/vconsole.conf
+        dest: /etc/vconsole.conf
+      tags: configuration
+ 
+    - name: sudovim
+      copy:
+        src: /home/{{ user }}/.dotfiles/etc/profile.d/editor.sh
+        dest: /etc/profile.d/editor.sh
+        mode: a+x
+      tags: configuration
+
+    - name: link configs
+      become_user: "{{ user }}"
+      file:
+        src: /home/{{ user }}/.dotfiles/{{ item }}
+        dest: /home/{{ user }}/{{ item }}
+        state: link
+        force: yes
+      with_items:
+        - .bash_profile
+        - .bashrc
+        - .xinitrc
+        - .Xresources
+        - .xbindkeysrc
+        - .scripts
+        - .fonts
+        - .gtkrc-2.0
+        - .psqlrc
+        - .vimrc
+        - .vim
+      tags: configuration
+
+    - name: create .config
+      become_user: "{{ user }}"
+      file:
+        path: /home/{{ user }}/.config
+        state: directory
+      tags: configuration
+
+    - name: link configs
+      become_user: "{{ user }}"
+      file:
+        src: /home/{{ user }}/.dotfiles/.config/{{ item }}
+        dest: /home/{{ user }}/.config/{{ item }}
+        state: link
+        force: yes
+      with_items:
+        - compton
+        - gxkb
+        - i3
+        - i3blocks
+        - terminator
+        - gtk-3.0
+        - rofi
+      tags: configuration
+
+    - name: set timezone
+      timezone:
+        name: Europe/Moscow
+      tags: configuration
+
+    - name: enable network manager daemon
+      systemd:
+        name: NetworkManager
+        enabled: yes
+      tags: configuration

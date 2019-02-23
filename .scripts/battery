@@ -1,0 +1,47 @@
+#!/bin/bash
+
+IFS=$'\n'
+bat_data=($(acpi -b))
+
+IFS=' '
+result=""
+max=0
+total=0
+total_n=0
+
+for bat_info in "${bat_data[@]}"; do
+  bat=(${bat_info})
+  bat_status=${bat[2]::-1}
+  bat_percent=${bat[3]//[!0-9]/}
+  bat_time=${bat[4]}
+
+  if [ $bat_status = "Charging" ]; then
+    result+=""
+  elif [ $bat_percent -gt 90 ]; then
+    result+=" "
+  elif [ $bat_percent -gt 60 ]; then
+    result+=" "
+  elif [ $bat_percent -gt 25 ]; then
+    result+=" "
+  elif [ $bat_percent -gt 15 ]; then
+    result+=" "
+  else
+    result+=" "
+  fi
+
+  result+=" $bat_percent% $bat_time "
+  max=$((max + 100))
+  total=$((total + bat_percent))
+done
+
+total_n=$((100*total/max))
+
+echo "${result::-1}"
+echo "${result::-1}"
+
+if [ $((total_n)) -lt 10 ]; then
+  exit 33
+elif [ $((total_n)) -lt 25 ]; then
+  echo "#FFAE00"
+fi
+
